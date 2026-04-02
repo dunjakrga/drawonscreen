@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Virtual Paint</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d0d0d; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: 'Space Mono', monospace; color: #fff; padding: 16px; }
+    h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 14px; opacity: 0.85; }
+    #placeholder { width: 640px; max-width: 100vw; aspect-ratio: 4/3; background: #161616; border: 1px solid #2a2a2a; border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+    #startBtn { padding: 10px 32px; font-family: 'Space Mono', monospace; font-size: 13px; letter-spacing: 0.1em; border-radius: 3px; cursor: pointer; border: 1px solid #444; background: #1e1e1e; color: #fff; text-transform: uppercase; transition: background 0.15s; }
+    #startBtn:hover { background: #2a2a2a; border-color: #666; }
+    #videoWrapper { display: none; position: relative; width: 640px; max-width: 100vw; border-radius: 4px; overflow: hidden; background: #000; aspect-ratio: 4/3; border: 1px solid #222; }
+    video, #overlayCanvas, #drawCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    video { transform: scaleX(-1); }
+    #drawCanvas { mix-blend-mode: screen; }
+    #overlayCanvas { pointer-events: none; }
+    #controls { display: none; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; justify-content: center; width: 640px; max-width: 100vw; }
+    .colorBtn { width: 32px; height: 32px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: transform 0.12s, border-color 0.12s; position: relative; }
+    .colorBtn.active { border-color: #fff; transform: scale(1.2); }
+    .colorBtn.active::after { content: ''; position: absolute; inset: -5px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); }
+    .eraserBtn { border-radius: 4px !important; font-size: 11px; }
+    #clearBtn, #saveBtn { padding: 7px 14px; font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 0.08em; border-radius: 3px; cursor: pointer; border: 1px solid #333; background: #1a1a1a; color: #ccc; text-transform: uppercase; transition: background 0.12s; }
+    #clearBtn:hover, #saveBtn:hover { background: #252525; }
+    #brushWrap { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #666; }
+    #brushRange { width: 70px; accent-color: #fff; }
+    #gestureHint { font-size: 11px; color: #444; margin-top: 10px; letter-spacing: 0.05em; }
+    #status { font-size: 11px; color: #888; margin-top: 5px; min-height: 18px; letter-spacing: 0.05em; }
+    #gestureIndicator { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); border: 1px solid #333; padding: 6px 18px; border-radius: 20px; font-size: 12px; letter-spacing: 0.1em; color: #fff; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 100; }
+    #gestureIndicator.visible { opacity: 1; }
+    #colorCycle { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; opacity: 0; transition: opacity 0.25s; pointer-events: none; z-index: 100; }
+    #colorCycle.visible { opacity: 1; }
+    .ccDot { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; transition: transform 0.15s; }
+    .ccDot.active { border-color: #fff; transform: scale(1.3); }
+  </style>
+</head>
+<body>
+<h1>Virtual Paint</h1>
+<div id="placeholder">
+  <p style="font-size:13px;color:#555;letter-spacing:0.08em;">DRAW WITH YOUR HAND</p>
+  <button id="startBtn">Enable Camera</button>
+  <p style="font-size:11px;color:#333;">Requires webcam + HTTPS</p>
+</div>
+<div id="videoWrapper">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="drawCanvas"></canvas>
+  <canvas id="overlayCanvas"></canvas>
+</div>
+<div id="controls">
+  <button class="colorBtn active" data-color="#3b82f6" style="background:#3b82f6;"></button>
+  <button class="colorBtn" data-color="#22c55e" style="background:#22c55e;"></button>
+  <button class="colorBtn" data-color="#ef4444" style="background:#ef4444;"></button>
+  <button class="colorBtn" data-color="#facc15" style="background:#facc15;"></button>
+  <button class="colorBtn" data-color="#f97316" style="background:#f97316;"></button>
+  <button class="colorBtn" data-color="#a855f7" style="background:#a855f7;"></button>
+  <button class="colorBtn" data-color="#ffffff" style="background:#ffffff;"></button>
+  <button class="colorBtn eraserBtn" data-color="#000" data-eraser="true" style="background:#2a2a2a;color:#aaa;">E</button>
+  <button id="clearBtn">Clear</button>
+  <button id="saveBtn">Save</button>
+  <div id="brushWrap">
+    <span>SIZE</span>
+    <input type="range" id="brushRange" min="2" max="40" value="7">
+    <span id="brushVal">7</span>
+  </div>
+</div>
+<p id="gestureHint" style="display:none;">☝ 1 finger = draw &nbsp;|&nbsp; ✌ 2 fingers = pause &nbsp;|&nbsp; 🤟 3 fingers = change color</p>
+<p id="status">Loading MediaPipe...</p>
+<div id="gestureIndicator"></div>
+<div id="colorCycle"></div>
+<script>
+(function() {
+  var scripts = [
+    'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js',
+    'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js',
+    'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js'
+  ];
+  var loaded = 0;
+  function loadNext(i) {
+    if (i >= scripts.length) { onAllLoaded(); return; }
+    var s = document.createElement('script');
+    s.src = scripts[i];
+    s.onload = function() { loadNext(i + 1); };
+    s.onerror = function() { document.getElementById('status').textContent = 'Failed to load MediaPipe script ' + i; };
+    document.head.appendChild(s);
+  }
+  loadNext(0);
+
+  function onAllLoaded() {
+    document.getElementById('status').textContent = 'Ready — click Enable Camera';
+    var video         = document.getElementById('video');
+    var drawCanvas    = document.getElementById('drawCanvas');
+    var overlayCanvas = document.getElementById('overlayCanvas');
+    var drawCtx       = drawCanvas.getContext('2d');
+    var overlayCtx    = overlayCanvas.getContext('2d');
+    var statusEl      = document.getElementById('status');
+    var gestureInd    = document.getElementById('gestureIndicator');
+    var colorCycleEl  = document.getElementById('colorCycle');
+
+    var COLORS = ['#3b82f6','#22c55e','#ef4444','#facc15','#f97316','#a855f7','#ffffff'];
+    var colorIndex = 0, currentColor = COLORS[0], brushSize = 7;
+    var isEraser = false, prevX = null, prevY = null;
+    var lastGesture = '', gestureFrames = 0, GESTURE_HOLD = 8, colorCooldown = 0, gestureTimer = null;
+
+    var CONNECTIONS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+    function buildCycleUI() {
+      colorCycleEl.innerHTML = '';
+      COLORS.forEach(function(c, i) {
+        var d = document.createElement('div');
+        d.className = 'ccDot' + (i === colorIndex ? ' active' : '');
+        d.style.background = c;
+        colorCycleEl.appendChild(d);
+      });
+    }
+    buildCycleUI();
+
+    function showGesture(txt, ms) {
+      gestureInd.textContent = txt;
+      gestureInd.classList.add('visible');
+      clearTimeout(gestureTimer);
+      gestureTimer = setTimeout(function() { gestureInd.classList.remove('visible'); }, ms || 1200);
+    }
+
+    function showCycle() {
+      buildCycleUI();
+      colorCycleEl.classList.add('visible');
+      clearTimeout(colorCycleEl._t);
+      colorCycleEl._t = setTimeout(function() { colorCycleEl.classList.remove('visible'); }, 1500);
+    }
+
+    function syncButtons() {
+      document.querySelectorAll('.colorBtn').forEach(function(b) {
+        b.classList.toggle('active', !isEraser && b.dataset.color === currentColor);
+      });
+    }
+
+    document.getElementById('startBtn').onclick = function() {
+      statusEl.textContent = 'Starting camera...';
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+        .then(function(stream) {
+          video.srcObject = stream;
+          video.onloadedmetadata = function() {
+            document.getElementById('placeholder').style.display = 'none';
+            document.getElementById('videoWrapper').style.display = 'block';
+            document.getElementById('controls').style.display = 'flex';
+            document.getElementById('gestureHint').style.display = 'block';
+            drawCanvas.width = overlayCanvas.width = video.videoWidth || 640;
+            drawCanvas.height = overlayCanvas.height = video.videoHeight || 480;
+            startTracking();
+          };
+        })
+        .catch(function(e) { statusEl.textContent = 'Camera denied: ' + e.message; });
+    };
+
+    document.querySelectorAll('.colorBtn').forEach(function(btn) {
+      btn.onclick = function() {
+        currentColor = btn.dataset.color;
+        isEraser = btn.dataset.eraser === 'true';
+        if (!isEraser) { var idx = COLORS.indexOf(currentColor); if (idx >= 0) colorIndex = idx; }
+        document.querySelectorAll('.colorBtn').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+      };
+    });
+
+    document.getElementById('clearBtn').onclick = function() { drawCtx.clearRect(0,0,drawCanvas.width,drawCanvas.height); };
+
+    document.getElementById('saveBtn').onclick = function() {
+      var tmp = document.createElement('canvas');
+      tmp.width = drawCanvas.width; tmp.height = drawCanvas.height;
+      var t = tmp.getContext('2d');
+      t.fillStyle = '#000'; t.fillRect(0,0,tmp.width,tmp.height);
+      t.drawImage(drawCanvas,0,0);
+      var a = document.createElement('a');
+      a.href = tmp.toDataURL('image/png'); a.download = 'drawing.png'; a.click();
+    };
+
+    document.getElementById('brushRange').oninput = function() {
+      brushSize = +this.value; document.getElementById('brushVal').textContent = brushSize;
+    };
+
+    function drawSkeleton(lm, W, H) {
+      overlayCtx.strokeStyle = 'rgba(255,255,255,0.5)';
+      overlayCtx.lineWidth = 2; overlayCtx.lineCap = 'round';
+      CONNECTIONS.forEach(function(c) {
+        overlayCtx.beginPath();
+        overlayCtx.moveTo((1-lm[c[0]].x)*W, lm[c[0]].y*H);
+        overlayCtx.lineTo((1-lm[c[1]].x)*W, lm[c[1]].y*H);
+        overlayCtx.stroke();
+      });
+      lm.forEach(function(pt, i) {
+        var x=(1-pt.x)*W, y=pt.y*H, r=i===0?5:(i%4===0?3.5:2);
+        overlayCtx.beginPath(); overlayCtx.arc(x,y,r,0,Math.PI*2);
+        overlayCtx.fillStyle='rgba(0,0,0,0.4)'; overlayCtx.fill();
+        overlayCtx.strokeStyle='rgba(255,255,255,0.9)'; overlayCtx.lineWidth=1.5; overlayCtx.stroke();
+      });
+    }
+
+    function startTracking() {
+      var hands = new Hands({ locateFile: function(f) { return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/' + f; } });
+      hands.setOptions({ maxNumHands:1, modelComplexity:1, minDetectionConfidence:0.7, minTrackingConfidence:0.5 });
+      hands.onResults(function(results) {
+        var W=drawCanvas.width, H=drawCanvas.height;
+        overlayCtx.clearRect(0,0,W,H);
+        if (colorCooldown > 0) colorCooldown--;
+        if (!results.multiHandLandmarks || !results.multiHandLandmarks.length) {
+          prevX=prevY=null; gestureFrames=0; lastGesture=''; return;
+        }
+        var lm = results.multiHandLandmarks[0];
+        overlayCtx.save(); overlayCtx.scale(-1,1); overlayCtx.translate(-W,0);
+        drawSkeleton(lm,W,H);
+        overlayCtx.restore();
+
+        var up = [lm[8].y<lm[6].y, lm[12].y<lm[10].y, lm[16].y<lm[14].y, lm[20].y<lm[18].y];
+        var gesture = '';
+        if (up[0]&&!up[1]&&!up[2]&&!up[3]) gesture='draw';
+        if (up[0]&&up[1]&&!up[2]&&!up[3])  gesture='pause';
+        if (up[0]&&up[1]&&up[2]&&!up[3])   gesture='color';
+        if (gesture===lastGesture) gestureFrames++; else { gestureFrames=0; lastGesture=gesture; }
+        var confirmed = gestureFrames>=GESTURE_HOLD ? gesture : '';
+
+        var ix=(1-lm[8].x)*W, iy=lm[8].y*H;
+        overlayCtx.save(); overlayCtx.scale(-1,1); overlayCtx.translate(-W,0);
+        overlayCtx.beginPath();
+        overlayCtx.arc((1-lm[8].x)*W, lm[8].y*H, isEraser?20:Math.max(brushSize,8), 0, Math.PI*2);
+        if (confirmed==='pause') { overlayCtx.strokeStyle='rgba(255,255,255,0.4)'; overlayCtx.setLineDash([4,4]); }
+        else if (confirmed==='color') { overlayCtx.strokeStyle=COLORS[(colorIndex+1)%COLORS.length]; overlayCtx.setLineDash([3,3]); }
+        else { overlayCtx.strokeStyle=isEraser?'#888':currentColor; overlayCtx.setLineDash([]); }
+        overlayCtx.lineWidth=2; overlayCtx.stroke(); overlayCtx.setLineDash([]);
+        overlayCtx.restore();
+
+        if (confirmed==='pause') { if(gestureFrames===GESTURE_HOLD) showGesture('✌ PAUSE',800); prevX=prevY=null; return; }
+        if (confirmed==='color') {
+          if (gestureFrames===GESTURE_HOLD&&colorCooldown===0) {
+            colorIndex=(colorIndex+1)%COLORS.length; currentColor=COLORS[colorIndex];
+            isEraser=false; colorCooldown=30; syncButtons();
+            showGesture('🤟 COLOR'); showCycle();
+          }
+          prevX=prevY=null; return;
+        }
+        if (confirmed==='draw') {
+          if (prevX!==null) {
+            drawCtx.save();
+            if (isEraser) { drawCtx.globalCompositeOperation='destination-out'; drawCtx.strokeStyle='rgba(0,0,0,1)'; drawCtx.lineWidth=brushSize*3; }
+            else { drawCtx.globalCompositeOperation='source-over'; drawCtx.strokeStyle=currentColor; drawCtx.lineWidth=brushSize; }
+            drawCtx.lineCap='round'; drawCtx.lineJoin='round';
+            drawCtx.beginPath(); drawCtx.moveTo(prevX,prevY); drawCtx.lineTo(ix,iy); drawCtx.stroke();
+            drawCtx.restore();
+          }
+          prevX=ix; prevY=iy;
+        } else { prevX=prevY=null; }
+      });
+
+      var camera = new Camera(video, {
+        onFrame: async function() { await hands.send({ image: video }); },
+        width: 640, height: 480
+      });
+      camera.start();
+      statusEl.textContent = 'Hand tracking active';
+      setTimeout(function() { statusEl.textContent = ''; }, 3000);
+    }
+  }
+})();
+</script>
+</body>
+</html>
