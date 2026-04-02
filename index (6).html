@@ -1,226 +1,75 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Virtual Paint</title>
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#111; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:monospace; color:#fff; }
-  h1 { margin-bottom:12px; font-size:20px; letter-spacing:0.1em; }
-  #placeholder { width:640px; max-width:98vw; aspect-ratio:4/3; background:#1a1a1a; border:1px solid #333; border-radius:6px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; }
-  #startBtn { padding:12px 36px; font-size:14px; font-family:monospace; cursor:pointer; border:1px solid #555; background:#222; color:#fff; border-radius:4px; letter-spacing:0.08em; }
-  #startBtn:hover { background:#333; }
-  #wrapper { display:none; position:relative; width:640px; max-width:98vw; aspect-ratio:4/3; }
-  #wrapper video, #wrapper canvas { position:absolute; top:0; left:0; width:100%; height:100%; }
-  #wrapper video { transform:scaleX(-1); }
-  #drawCanvas { mix-blend-mode:screen; }
-  #overlayCanvas { pointer-events:none; }
-  #hint { font-size:11px; color:#555; margin-top:8px; }
-  #status { font-size:11px; color:#777; margin-top:4px; min-height:16px; }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Virtual Paint</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1a1a1a; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: sans-serif; color: #fff; }
+    h1 { font-size: 22px; font-weight: 500; margin-bottom: 16px; }
+
+    #placeholder { width: 640px; max-width: 100vw; aspect-ratio: 4/3; background: #2a2a2a; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+    #startBtn { padding: 10px 28px; font-size: 15px; border-radius: 8px; cursor: pointer; border: 1px solid #555; background: #333; color: #fff; }
+    #startBtn:hover { background: #444; }
+
+    #videoWrapper { display: none; position: relative; width: 640px; max-width: 100vw; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 4/3; }
+    video, #overlayCanvas, #drawCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    video { transform: scaleX(-1); }
+    #overlayCanvas { pointer-events: none; }
+
+    #controls { display: none; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; justify-content: center; width: 640px; max-width: 100vw; }
+    .colorBtn { width: 36px; height: 36px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; transition: transform 0.1s; }
+    .colorBtn.active { border-color: #fff; transform: scale(1.15); }
+    .eraserBtn { border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+    #clearBtn, #saveBtn { padding: 8px 16px; font-size: 13px; border-radius: 8px; cursor: pointer; border: 1px solid #555; background: #333; color: #fff; }
+    #clearBtn:hover, #saveBtn:hover { background: #444; }
+    #brushWrap { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #aaa; margin-left: auto; }
+    #brushRange { width: 80px; }
+
+    #gestureHint { font-size: 12px; color: #666; margin-top: 8px; }
+    #status { font-size: 13px; color: #aaa; margin-top: 6px; min-height: 20px; }
+  </style>
 </head>
 <body>
-<h1>Virtual Paint</h1>
-<div id="placeholder">
-  <p style="color:#555;font-size:13px;">Draw in the air with your finger</p>
-  <button id="startBtn">Enable Camera</button>
-  <p style="color:#333;font-size:11px;">Needs webcam + HTTPS</p>
-</div>
-<div id="wrapper">
-  <video id="video" autoplay playsinline muted></video>
-  <canvas id="drawCanvas"></canvas>
-  <canvas id="overlayCanvas"></canvas>
-</div>
-<p id="hint" style="display:none;">☝ 1 finger = draw &nbsp;|&nbsp; ✌ 2 fingers = pause &nbsp;|&nbsp; ☝ hover top bar = pick color</p>
-<p id="status"></p>
 
-<script>
-// ─── Load MediaPipe scripts in order ────────────────────────────────────────
-var MEDIAPIPE_SCRIPTS = [
-  'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js',
-  'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js'
-];
-function loadScripts(list, cb) {
-  if (!list.length) { cb(); return; }
-  var s = document.createElement('script');
-  s.src = list[0];
-  s.onload = function() { loadScripts(list.slice(1), cb); };
-  s.onerror = function() { document.getElementById('status').textContent = 'Failed to load: ' + list[0]; };
-  document.head.appendChild(s);
-}
+  <h1>Virtual Paint</h1>
 
-loadScripts(MEDIAPIPE_SCRIPTS, function() {
-  document.getElementById('status').textContent = 'Ready';
+  <div id="placeholder">
+    <p style="font-size: 15px; color: #aaa;">Draw with your finger</p>
+    <button id="startBtn">Enable Camera</button>
+    <p style="font-size: 12px; color: #666;">Requires webcam access</p>
+  </div>
 
-  // ─── DOM ──────────────────────────────────────────────────────────────────
-  var video         = document.getElementById('video');
-  var drawCanvas    = document.getElementById('drawCanvas');
-  var overlayCanvas = document.getElementById('overlayCanvas');
-  var dCtx          = drawCanvas.getContext('2d');
-  var oCtx          = overlayCanvas.getContext('2d');
-  var statusEl      = document.getElementById('status');
+  <div id="videoWrapper">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="drawCanvas"></canvas>
+    <canvas id="overlayCanvas"></canvas>
+  </div>
 
-  // ─── Palette (matches Python version: Blue, Green, Red, Yellow, Eraser) ──
-  var PALETTE = [
-    { color: '#2563eb', label: 'Blue'   },
-    { color: '#16a34a', label: 'Green'  },
-    { color: '#dc2626', label: 'Red'    },
-    { color: '#eab308', label: 'Yellow' },
-    { color: null,      label: 'Eraser' }  // null = eraser
-  ];
-  var colorIndex     = 0;
-  var BRUSH_SIZE     = 7;
-  var ERASER_SIZE    = 40;
-  var PALETTE_HEIGHT = 80; // px in canvas coords
+  <div id="controls">
+    <button class="colorBtn active" data-color="#2563eb" style="background:#2563eb;" title="Blue"></button>
+    <button class="colorBtn" data-color="#16a34a" style="background:#16a34a;" title="Green"></button>
+    <button class="colorBtn" data-color="#dc2626" style="background:#dc2626;" title="Red"></button>
+    <button class="colorBtn" data-color="#eab308" style="background:#eab308;" title="Yellow"></button>
+    <button class="colorBtn" data-color="#f97316" style="background:#f97316;" title="Orange"></button>
+    <button class="colorBtn" data-color="#ffffff" style="background:#ffffff;" title="White"></button>
+    <button class="colorBtn eraserBtn" data-color="#000" data-eraser="true" style="background:#333; color:#fff;" title="Eraser">E</button>
+    <button id="clearBtn">Clear</button>
+    <button id="saveBtn">Save</button>
+    <div id="brushWrap">
+      <span>Size</span>
+      <input type="range" id="brushRange" min="2" max="40" value="7" step="1">
+      <span id="brushVal">7</span>
+    </div>
+  </div>
 
-  var prevX = 0, prevY = 0;
+  <p id="gestureHint">☝ One finger = draw &nbsp;|&nbsp; ✌ Two fingers = pause</p>
+  <p id="status"></p>
 
-  // gesture debounce
-  var lastGesture = '', gFrames = 0, G_HOLD = 6;
-
-  // ─── Start camera ─────────────────────────────────────────────────────────
-  document.getElementById('startBtn').onclick = function() {
-    statusEl.textContent = 'Starting camera...';
-    navigator.mediaDevices.getUserMedia({ video: { facingMode:'user', width:640, height:480 } })
-      .then(function(stream) {
-        video.srcObject = stream;
-        video.onloadedmetadata = function() {
-          document.getElementById('placeholder').style.display = 'none';
-          document.getElementById('wrapper').style.display     = 'block';
-          document.getElementById('hint').style.display        = 'block';
-          var W = video.videoWidth  || 640;
-          var H = video.videoHeight || 480;
-          drawCanvas.width = overlayCanvas.width = W;
-          drawCanvas.height = overlayCanvas.height = H;
-          startTracking(W, H);
-        };
-      })
-      .catch(function(e) { statusEl.textContent = 'Camera denied: ' + e.message; });
-  };
-
-  // ─── Draw color palette bar on overlay ───────────────────────────────────
-  function drawPaletteBar(W) {
-    var tileW = W / PALETTE.length;
-    for (var i = 0; i < PALETTE.length; i++) {
-      // tile background
-      oCtx.fillStyle = PALETTE[i].color || '#333';
-      oCtx.fillRect(i * tileW, 0, tileW, PALETTE_HEIGHT);
-      // active border
-      if (i === colorIndex) {
-        oCtx.strokeStyle = '#fff';
-        oCtx.lineWidth = 4;
-        oCtx.strokeRect(i * tileW + 2, 2, tileW - 4, PALETTE_HEIGHT - 4);
-      }
-      // label
-      oCtx.fillStyle = '#fff';
-      oCtx.font = 'bold 13px monospace';
-      oCtx.fillText(PALETTE[i].label, i * tileW + 8, PALETTE_HEIGHT - 14);
-    }
-  }
-
-  // ─── MediaPipe ────────────────────────────────────────────────────────────
-  function startTracking(W, H) {
-    var hands = new Hands({
-      locateFile: function(f) {
-        return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/' + f;
-      }
-    });
-    hands.setOptions({
-      maxNumHands: 1,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.7,
-      minTrackingConfidence: 0.5
-    });
-    hands.onResults(function(results) { onResults(results, W, H); });
-
-    var camera = new Camera(video, {
-      onFrame: async function() { await hands.send({ image: video }); },
-      width: W, height: H
-    });
-    camera.start();
-    statusEl.textContent = 'Hand tracking active';
-    setTimeout(function() { statusEl.textContent = ''; }, 3000);
-  }
-
-  // ─── Results handler ──────────────────────────────────────────────────────
-  function onResults(results, W, H) {
-    oCtx.clearRect(0, 0, W, H);
-
-    // always draw palette bar
-    drawPaletteBar(W);
-
-    if (!results.multiHandLandmarks || !results.multiHandLandmarks.length) {
-      prevX = prevY = 0;
-      lastGesture = ''; gFrames = 0;
-      return;
-    }
-
-    var lm = results.multiHandLandmarks[0];
-
-    // landmark coords → canvas pixels (mirrored to match flipped video)
-    function lx(pt) { return (1 - pt.x) * W; }
-    function ly(pt) { return pt.y * H; }
-
-    var ix = lx(lm[8]), iy = ly(lm[8]);
-
-    var indexUp  = lm[8].y  < lm[6].y;
-    var middleUp = lm[12].y < lm[10].y;
-
-    // ── Gesture detection (same logic as Python) ──
-    var gesture = '';
-    if (indexUp && !middleUp) gesture = 'draw';
-    if (indexUp &&  middleUp) gesture = 'pause';
-
-    if (gesture === lastGesture) gFrames++;
-    else { gFrames = 0; lastGesture = gesture; }
-    var confirmed = gFrames >= G_HOLD ? gesture : '';
-
-    // ── Draw cursor dot (like Python's cv2.circle) ──
-    oCtx.beginPath();
-    oCtx.arc(ix, iy, 10, 0, Math.PI * 2);
-    oCtx.fillStyle = PALETTE[colorIndex].color || '#888';
-    oCtx.fill();
-
-    // ── Palette selection: finger in top bar ──
-    if (iy <= PALETTE_HEIGHT) {
-      var tileW = W / PALETTE.length;
-      var picked = Math.min(Math.floor(ix / tileW), PALETTE.length - 1);
-      if (confirmed === 'draw') {
-        colorIndex = picked;
-        prevX = prevY = 0;
-      }
-      return;
-    }
-
-    // ── Drawing ──
-    if (confirmed === 'draw') {
-      if (prevX !== 0 || prevY !== 0) {
-        dCtx.save();
-        if (PALETTE[colorIndex].color === null) {
-          // eraser
-          dCtx.globalCompositeOperation = 'destination-out';
-          dCtx.strokeStyle = 'rgba(0,0,0,1)';
-          dCtx.lineWidth = ERASER_SIZE;
-        } else {
-          dCtx.globalCompositeOperation = 'source-over';
-          dCtx.strokeStyle = PALETTE[colorIndex].color;
-          dCtx.lineWidth = BRUSH_SIZE;
-        }
-        dCtx.lineCap = 'round';
-        dCtx.lineJoin = 'round';
-        dCtx.beginPath();
-        dCtx.moveTo(prevX, prevY);
-        dCtx.lineTo(ix, iy);
-        dCtx.stroke();
-        dCtx.restore();
-      }
-      prevX = ix; prevY = iy;
-    } else {
-      prevX = prevY = 0;
-    }
-  }
-});
-</script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
